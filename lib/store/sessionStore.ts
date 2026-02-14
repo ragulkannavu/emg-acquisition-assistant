@@ -2,12 +2,13 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Session, LogEntry, SessionStatus } from '@/lib/types';
+import { Session } from '@/lib/types';
 import { nanoid } from '@/lib/utils';
+import { saveSession as saveToCloud } from '@/lib/db';
 
 interface SessionStore {
   sessions: Session[];
-  addSession: (session: Omit<Session, 'id'>) => Session;
+  addSession: (session: Omit<Session, 'id'>, userId?: string | null) => Session;
   deleteSession: (id: string) => void;
   getSessionsForProtocol: (protocol_id: string) => Session[];
 }
@@ -17,12 +18,18 @@ export const useSessionStore = create<SessionStore>()(
     (set, get) => ({
       sessions: [],
 
-      addSession: (session) => {
+      addSession: (session, userId) => {
         const newSession: Session = {
           ...session,
           id: nanoid(),
         };
         set((state) => ({ sessions: [newSession, ...state.sessions] }));
+
+        // Also save to Firestore if user is logged in
+        if (userId) {
+          saveToCloud(userId, session).catch(console.error);
+        }
+
         return newSession;
       },
 

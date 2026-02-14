@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { Play, Pause, Square, SkipForward, CheckCircle2 } from 'lucide-react';
 import { cn, formatMs } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
 
 type Phase =
   | 'idle'
@@ -60,6 +61,7 @@ const phaseLabels: Record<Phase, string> = {
 export default function ExecutionEngine({ protocol }: ExecutionEngineProps) {
   const router = useRouter();
   const { addSession } = useSessionStore();
+  const { user } = useAuth();
   const useAudio = protocol.settings.audio_cues;
 
   const [state, setState] = useState<ExecutionState>({
@@ -230,10 +232,10 @@ export default function ExecutionEngine({ protocol }: ExecutionEngineProps) {
         end_time: new Date().toISOString(),
         logs: logsRef.current,
         status: 'completed',
-      });
+      }, user?.uid);
       sessionStartRef.current = null;
     }
-  }, [state.phase, protocol, addSession]);
+  }, [state.phase, protocol, addSession, user]);
 
   const handleStart = () => {
     sessionStartRef.current = new Date().toISOString();
@@ -288,7 +290,7 @@ export default function ExecutionEngine({ protocol }: ExecutionEngineProps) {
         end_time: new Date().toISOString(),
         logs: logsRef.current,
         status: 'aborted',
-      });
+      }, user?.uid);
       sessionStartRef.current = null;
     }
     router.push(`/protocols/${protocol.id}`);

@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSessionStore } from '@/lib/store/sessionStore';
+import { useAuth } from '@/lib/auth-context';
+import { getUserSessions, deleteSessionFromCloud } from '@/lib/db';
+import { Session } from '@/lib/types';
 import Navbar from '@/components/Navbar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { History, Download, Trash2, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { History, Download, Trash2, ChevronDown, ChevronUp, Clock, Cloud, HardDrive } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import {
   AlertDialog,
@@ -44,9 +46,10 @@ function exportSession(session: { id: string; protocol_name: string; start_time:
   URL.revokeObjectURL(url);
 }
 
-function SessionRow({ session, onDelete }: {
+function SessionRow({ session, onDelete, isCloud }: {
   session: { id: string; protocol_name: string; start_time: string; end_time: string; logs: { movement_id: string; movement_name: string; rep: number; started_at: string; ended_at: string }[]; status: string };
   onDelete: (id: string) => void;
+  isCloud?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const durationMs = new Date(session.end_time).getTime() - new Date(session.start_time).getTime();
@@ -74,6 +77,9 @@ function SessionRow({ session, onDelete }: {
             >
               {session.status}
             </Badge>
+            {isCloud && (
+              <span title="Synced to cloud"><Cloud className="h-3 w-3 text-blue-400" /></span>
+            )}
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
             <span>{formatDate(session.start_time)}</span>
@@ -153,7 +159,34 @@ function SessionRow({ session, onDelete }: {
 }
 
 export default function SessionsPage() {
-  const { sessions, deleteSession } = useSessionStore();
+  const { sessions: localSessions, deleteSession: deleteLocal } = useSessionStore();
+  const { user } = useAuth();
+  const [cloudSessions, setCloudSessions] = useState<Session[]>([]);
+  const [loadingCloud, setLoadingCloud] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setLoadingCloud(true);
+      getUserSessions(user.uid)
+        .then(setCloudSessions)
+        .catch(console.error)
+        .finally(() => setLoadingCloud(false));
+    } else {
+      setCloudSessions([]);
+    }
+  }, [user]);
+
+  const handleDeleteCloud = async (id: string) => {
+    if (!user) return;
+    try {
+      await deleteSessionFromCloud(user.uid, id);
+      setCloudSessions((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      console.error('Failed to delete cloud session:', err);
+    }
+  };
+
+  const totalCount = (user ? cloudSessions.length : 0) + localSessions.length;
 
   return (
     <div className="min-h-screen">
@@ -166,26 +199,56 @@ export default function SessionsPage() {
               Session History
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              {sessions.length} session{sessions.length !== 1 ? 's' : ''} recorded
+              {totalCount} session{totalCount !== 1 ? 's' : ''} recorded
             </p>
           </div>
         </div>
 
-        {sessions.length === 0 ? (
-          <div className="text-center py-24 border border-dashed border-border rounded-xl">
-            <History className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-muted-foreground">No sessions yet</h2>
-            <p className="text-sm text-muted-foreground/70 mt-1">
-              Run a protocol to record your first session
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {sessions.map((session) => (
-              <SessionRow key={session.id} session={session} onDelete={deleteSession} />
-            ))}
+        {/* Cloud sessions */}
+        {user && (
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Cloud className="h-4 w-4 text-blue-400" />
+              <h2 className="text-sm font-medium text-muted-foreground">Cloud Sessions</h2>
+            </div>
+            {loadingCloud ? (
+              <div className="text-center py-8 text-sm text-muted-foreground">Loading cloud sessions...</div>
+            ) : cloudSessions.length === 0 ? (
+              <div className="text-center py-6 border border-dashed border-border rounded-lg text-sm text-muted-foreground">
+                No cloud sessions yet. Run a protocol while signed in to sync.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {cloudSessions.map((session) => (
+                  <SessionRow key={session.id} session={session} onDelete={handleDeleteCloud} isCloud />
+                ))}
+              </div>
+            )}
           </div>
         )}
+
+        {/* Local sessions */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <HardDrive className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-medium text-muted-foreground">Local Sessions</h2>
+          </div>
+          {localSessions.length === 0 ? (
+            <div className="text-center py-12 border border-dashed border-border rounded-xl">
+              <History className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+              <h2 className="text-lg font-semibold text-muted-foreground">No local sessions</h2>
+              <p className="text-sm text-muted-foreground/70 mt-1">
+                Run a protocol to record your first session
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {localSessions.map((session) => (
+                <SessionRow key={session.id} session={session} onDelete={deleteLocal} />
+              ))}
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );
